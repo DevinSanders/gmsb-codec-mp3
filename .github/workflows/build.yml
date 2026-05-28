@@ -39,7 +39,7 @@ jobs:
         run: ./scripts/package.ps1
 
       - name: Upload zip artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: plugin-zip
           path: dist/*.zip
