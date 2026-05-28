@@ -1,0 +1,134 @@
+name: Release
+
+# Cuts a GitHub Release for this plugin when a `v*` tag is pushed.
+# Builds + packages the same way the build workflow does, then attaches
+# the zip to the Release. End users drop the released zip onto Game
+# Master Sound Board's Plugin Manager to install.
+#
+# Tag convention: `v<semver>` (e.g. `v1.0.0`, `v1.1.0-beta.1`). Tags
+# containing a `-` are marked as prereleases automatically. This repo's
+# tag namespace is its own — distinct from the main app's `v*` tags
+# because it lives in its own repository.
+#
+# The version baked into the artifact is derived from the tag (the
+# leading `v` is stripped) and passed to package.ps1 via -Version,
+# which then:
+#   • Stamps it into plugin.json (the manifest the host reads).
+#   • Forwards it to `dotnet publish -p:Version=` so the assembly's
+#     AssemblyInformationalVersion matches (PluginVersion.OfAssembly
+#     reads that at runtime).
+#   • Uses it in the zip filename: <publisher>-<id>-<version>.zip.
+# So the tag is the single source of truth for the released version
+# regardless of what plugin.json or the csproj say in source.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release as (e.g. v1.0.0). Will be created if it does not exist.'
+        required: true
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write  # softprops/action-gh-release needs this
+
+jobs:
+  release:
+    name: Build + package + publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Derive version from tag
+        id: ver
+        shell: bash
+        # github.ref_name is the tag that triggered this workflow
+        # (e.g. "v1.2.3"). Strip the leading `v` so it can be used as a
+        # SemVer string for MSBuild and plugin.json. The tag is the
+        # single source of truth for the released version.
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag:     $TAG"
+          echo "Version: $VERSION"
+
+      - name: Restore
+        run: dotnet restore src/*.csproj
+
+      - name: Package
+        shell: pwsh
+        # -Version makes the script stamp plugin.json + pass
+        # -p:Version= through to dotnet publish so the manifest and the
+        # assembly metadata both reflect the release tag.
+        run: ./scripts/package.ps1 -Version '${{ steps.ver.outputs.version }}'
+
+      - name: Smoke-test the zip's manifest
+        # Mirror what Game Master Sound Board's installer does on
+        # ingestion — open the zip, find plugin.json, parse it,
+        # confirm the declared entryDll exists alongside, AND confirm
+        # the manifest's version matches the tag-derived version.
+        # Catches packaging regressions before they reach end users.
+        shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = Get-ChildItem dist -Filter *.zip | Select-Object -First 1
+          if (-not $zip) { throw "No zip produced." }
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          try {
+            $manifestEntry = $archive.Entries | Where-Object { $_.Name -eq 'plugin.json' } | Select-Object -First 1
+            if (-not $manifestEntry) { throw "$($zip.Name): no plugin.json inside." }
+            $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
+            $json = $reader.ReadToEnd() | ConvertFrom-Json
+            $reader.Close()
+            foreach ($field in 'publisher','id','entryDll') {
+              if (-not $json.$field) { throw "$($zip.Name): plugin.json missing '$field'." }
+            }
+            $manifestFolder = Split-Path $manifestEntry.FullName -Parent
+            $entryPath = "$manifestFolder/$($json.entryDll)"
+            if (-not ($archive.Entries | Where-Object { $_.FullName -eq $entryPath })) {
+              throw "$($zip.Name): manifest declares entryDll '$($json.entryDll)' but $entryPath is not in the zip."
+            }
+            if ($json.version -ne $env:EXPECTED_VERSION) {
+              throw "$($zip.Name): manifest version '$($json.version)' does not match tag-derived version '$env:EXPECTED_VERSION'."
+            }
+            Write-Host "OK $($zip.Name) — $($json.publisher)/$($json.id) v$($json.version)"
+          } finally {
+            $archive.Dispose()
+          }
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          body: |
+            Install on Game Master Sound Board:
+              1. Open the app.
+              2. Settings → Plugin Manager.
+              3. Drop the attached `.zip` onto the install zone.
+
+            For codec / sampler / UI plugins, click **Restart Now** after
+            install and enable the plugin under Settings → Plugins.
+            Themes activate live — no restart needed.
+
+            See [docs/PLUGIN-DEV.md](https://github.com/DevinSanders/game-master-soundboard/blob/main/docs/PLUGIN-DEV.md)
+            for the plugin contract and manifest reference.
+          # `-` in the tag → prerelease (`v1.0.0-beta.1`, `v1.0.0-rc.1`).
+          prerelease: ${{ contains(steps.ver.outputs.tag, '-') }}
+          files: dist/*.zip
+          fail_on_unmatched_files: true

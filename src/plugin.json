@@ -1,0 +1,10 @@
+{
+  "publisher": "github.DevinSanders",
+  "id": "codec.mp3",
+  "name": "MP3 Codec",
+  "version": "1.0.0",
+  "author": "Devin Sanders",
+  "description": "Adds .mp3 playback support to Game Master Sound Board via the NLayer managed MPEG decoder.",
+  "entryDll": "Mp3CodecPlugin.dll",
+  "isTheme": false
+}

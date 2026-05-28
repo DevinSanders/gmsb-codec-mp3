@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Mp3CodecPlugin</AssemblyName>
+    <RootNamespace>Mp3CodecPlugin</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- Default version for local dev builds. CI release.yml overrides
+         this via `-p:Version=<tag-derived>` so the assembly version
+         tracks the release tag; PluginVersion.OfAssembly reads it at
+         runtime. Keep this in sync with plugin.json's version field
+         for local builds that don't pass -Version. -->
+    <Version>1.0.0</Version>
+    <!-- SDK-style libraries don't copy locked NuGet assemblies to the
+         build output by default. Codec plugins need their decoder library
+         (NLayer here) physically next to the plugin DLL so the host's
+         PluginLoadContext can resolve it — the runtime's NuGet-cache
+         lookup doesn't apply once the plugin is deployed to the user's
+         Plugins folder. Enabling CopyLocalLockFileAssemblies makes the
+         lock-file deps land alongside the plugin output. NAudio.Core +
+         SoundBoard.PluginApi get copied too — harmless because
+         PluginLoadContext defers them to the host's default ALC for
+         type-identity reasons. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- IPlugin / IAudioCodecPlugin contracts. The host ships its own
+         SoundBoard.PluginApi.dll and PluginLoadContext defers to it, so
+         ExcludeAssets="runtime" keeps the compile-time reference but
+         strips the assembly from this plugin's output (same as NAudio.Core). -->
+    <PackageReference Include="SoundBoard.PluginApi" Version="1.0.0-beta.1" ExcludeAssets="runtime" />
+
+    <!-- NAudio.Core flows in transitively through SoundBoard.PluginApi. The
+         host owns the live NAudio instance; if we shipped our own copy here
+         the WaveStream the host expects from CreateStream would be a
+         different CLR type than ours and casts would fail.
+         ExcludeAssets="runtime" keeps the compile-time reference but strips
+         NAudio.Core.dll from the publish output. -->
+    <PackageReference Include="NAudio.Core" Version="2.3.0" ExcludeAssets="runtime" />
+
+    <!-- NLayer is a pure-managed MPEG-1/2/2.5 layer 3 decoder. -->
+    <PackageReference Include="NLayer" Version="1.16.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- plugin.json is the host's install / discovery manifest. Must
+         end up next to the plugin DLL in the build output so the
+         packaging script (and any zip the user makes from that output)
+         finds it at the plugin folder root. -->
+    <None Update="plugin.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
