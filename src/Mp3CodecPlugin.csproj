@@ -42,7 +42,7 @@
     <PackageReference Include="NAudio.Core" Version="2.3.0" ExcludeAssets="runtime" />
 
     <!-- NLayer is a pure-managed MPEG-1/2/2.5 layer 3 decoder. -->
-    <PackageReference Include="NLayer" Version="1.16.0" />
+    <PackageReference Include="NLayer" Version="2.0.0" />
   </ItemGroup>
 
   <ItemGroup>
