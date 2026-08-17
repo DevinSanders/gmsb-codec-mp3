@@ -20,7 +20,7 @@
          and PluginLoadContext defers to them). The test host has no host
          to defer to, so it needs both runtime assemblies present —
          reference them directly here. -->
-    <PackageReference Include="NAudio.Core" Version="2.3.0" />
+    <PackageReference Include="NAudio.Core" Version="3.0.0" />
     <PackageReference Include="SoundBoard.PluginApi" Version="1.0.0-beta.1" />
   </ItemGroup>
 
